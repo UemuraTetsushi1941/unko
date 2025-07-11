@@ -1,0 +1,623 @@
+scriptname xLoversMB2SpellSelfSC
+;r20110122
+;- Initial release.
+;r20110123
+;- 2nd release
+;  bug fix : only female can equip bottom
+;r20110129
+;- 3rd release
+;  change  : record boner item count
+;  bug fix : modav -> modav2
+;  bug fix : Ammo ReEquip is fixed
+;
+
+; stage
+short sStage
+short sDone_
+
+; equipped items
+ref rEquippedTop
+ref rEquippedBottom
+ref rEquippedTopAndBottom
+ref rHand
+ref rWeapon
+ref rAmmo
+ref rShield
+ref rPlayerBoners
+
+; misc vars
+short sKeyPressed ; which key was pressed
+short sCameraView ; was the player first person or third when masturbating started
+float fTimer ; currently running timer
+float fVoiceTimer ; timer for sound effects
+ref rTmp ; temporary reference used in various places
+float fTmp ; temp float variable
+short sTmp ; temp short.. we're on a roll here
+short sReady ; player is ready
+ref rPlayer ; fucking bs
+short sNumActors ; number of actors allowed to follow player
+short sFatigue ; fatigue before starting
+short sBoners
+
+begin ScriptEffectFinish
+	debugPrint "xLoversMB2 [%n] - cleaning up" rPlayer
+	set rPlayer to player
+	; release any actors following the player
+	if(xLoversMB2Quest.sAllowSpectators)
+		set rTmp to getFirstRef 69 1
+		while(rTmp)
+		; is the actor following the player?
+		if(rTmp.getIsCurrentPackage xLoversMB2FollowPlayer)
+			; stop it
+			rTmp.stopLook
+			rTmp.removeScriptPackage
+			
+			; resume doing whatever
+			rTmp.playGroup idle 1
+		endif
+
+		set rTmp to getNextRef
+		loop
+	endif
+
+	set xLoversMB2Quest.sDisallowAdvanceStage to 0
+
+	set sStage to player.getItemCount xLoversMBStage
+	if(sStage)
+		; we actually did something
+
+		; reset stage and remove any tokens
+		while (call xLoversCmnSetItemCount rPlayer xLoversMBStage 0)
+			call xLoversCmnSetItemCount rPlayer xLoversStageM 0
+			call xLoversCmnSetItemCount rPlayer xLoversPkrFlagTFC 0
+			call xLoversCmnSetItemCount rPlayer xLoversPkrIdentifier 0
+			call xLoversCmnSetItemCount rPlayer xLoversPkrStep 0
+;-------------------------------------------------------------------------------------------------------
+			call xLoversCmnSetItemCount rPlayer, xLoversMB2fem, 0
+;-------------------------------------------------------------------------------------------------------
+		loop
+
+		; reset camera position
+		con_tfc
+		if(sCameraView != 1)
+			ToggleFirstPerson 1
+		endif
+
+		; reequip weapons and armor
+		if(xLoversMB2Quest.sLeaveVulnerable == 0)
+
+			; clear erected cock
+			call xLoversCmnDeleteAllChinupoItem rPlayer
+
+			; re-equip clothing
+			if(rEquippedTopAndBottom)
+				player.equipItemNS rEquippedTopAndBottom
+			endif
+
+			if(rEquippedTop)
+				player.equipItemNS rEquippedTop
+			endif
+
+			if(rEquippedBottom)
+				player.equipItemNS rEquippedBottom
+			endif
+
+			; re-equip hand armor
+			if(rHand)
+				player.equipItemNS rHand
+			endif
+
+			; re-equip any weapons, ammo, or shields
+			if(rWeapon)
+				player.equipItemNS rWeapon
+			endif
+
+			if(rAmmo)
+				set sTmp to (player.GetItemCount rAmmo)
+				set sTmp to sTmp - 1
+				if(sTmp > 0)
+					player.RemoveItemNs rAmmo sTmp
+				endif
+				player.equipItemNS rAmmo
+				set xLoversMB2ActivatingAmmo.sAmmo to sTmp
+				set sTmp to sTmp - 1
+				if(sTmp > 0)
+					player.AddItemNs rAmmo sTmp
+				endif
+				set sTmp to sTmp + 1
+				if(sTmp > 0)
+					set rTmp to player.PlaceAtMe rAmmo, 1
+					set xLoversMB2ActivatingAmmo.rAmmo to rTmp
+				endif
+			endif
+
+			if(rShield)
+				player.equipItemNS rShield
+			endif
+
+			; revive player
+			; TODO: there should be a better way to do this
+			set sTmp to player.getActorValue fatigue
+			set sTmp to (abs sTmp) + sFatigue
+		else
+			set sTmp to player.getActorValue fatigue
+			set sTmp to (abs sTmp)
+		endif
+
+		; make the player playable again
+		player.modActorValue2 fatigue sTmp 
+
+		if(rPlayerBoners)
+			while(call xLoversCmnSetItemCount rPlayer rPlayerBoners sBoners)
+			loop
+		endif
+
+		if(rAmmo) && (xLoversMB2ActivatingAmmo.sAmmo)
+			StartQuest xLoversMB2ActivatingAmmo
+		endif
+
+		player.SetGhost 0
+		player.SetUnconscious 0
+
+	endif
+
+		debugPrint "xLoversMB2 [%n] - done" rPlayer
+
+end
+
+begin ScriptEffectStart
+	set rPlayer to player
+	set rPlayerBoners to xLoversMB2Quest.rPlayerBoners
+
+	; check if the player is ready
+	; is target ready?
+	let sReady := call xLoversCmnIsready rPlayer
+	if(sReady == 0)
+		player.dispel xLoversMB2SpellTarget
+	endif
+
+	debugPrint "xLoversMB2 [%n] - passed checks, starting up" rPlayer
+
+	; init vars
+	while (call xLoversCmnSetItemCount rPlayer xLoversMBStage 0)
+			call xLoversCmnSetItemCount rPlayer xLoversStageM 0
+			call xLoversCmnSetItemCount rPlayer xLoversPkrFlagTFC 0
+			call xLoversCmnSetItemCount rPlayer xLoversPkrIdentifier 0
+			call xLoversCmnSetItemCount rPlayer xLoversPkrStep 0
+	loop
+
+	if(rPlayerBoners)
+		set sBoners to player.getItemCount rPlayerBoners
+		call xLoversCmnSetItemCount rPlayer rPlayerBoners 1
+	endif
+
+	set sFatigue to player.getActorValue fatigue
+	set sDone_ to 0
+
+	; unsneak, put weapon away
+	if(player.IsSneaking)
+		player.SetForceSneak 0
+	endif
+			
+	if(player.IsWeaponOut)
+		player.setAlert 0
+	endif
+	
+	; set the player so s/he cannot be harmed
+	player.SetUnconscious 1
+	player.SetGhost 1
+
+	; players equipped top and bottom, for removal
+	if(player.GetEquippedObject 18)
+		set rEquippedTopAndBottom to player.GetEquippedObject 18
+	elseif(player.GetEquippedObject 19)
+		set rEquippedTopAndBottom to player.GetEquippedObject 19
+	elseif(player.GetEquippedObject 20)
+		set rEquippedTopAndBottom to player.GetEquippedObject 20
+	elseif(player.GetEquippedObject 21)
+		set rEquippedTopAndBottom to player.GetEquippedObject 21
+	else
+		set rEquippedTop to player.GetEquippedObject 2
+		set rEquippedBottom to player.GetEquippedObject 3
+	endif
+
+	; unequip clothing
+	if(rEquippedTopAndBottom)
+		set sTmp to call xLoversCmnIsBodySizeEquip rEquippedTopAndBottom
+		if(sTmp == 0)
+			player.unequipItemNS rEquippedTopAndBottom
+		endif
+	endif
+
+	if(rEquippedTop) && (player.GetIsSex Female) ; only female unequip top
+		set sTmp to call xLoversCmnIsBodySizeEquip rEquippedTop
+		if(sTmp == 0)
+			player.unequipItemNS rEquippedTop
+		endif
+	endif
+
+	if(rEquippedBottom);
+		set sTmp to call xLoversCmnIsBodySizeEquip rEquippedBottom
+		if(sTmp == 0)
+			player.unequipItemNS rEquippedBottom
+		endif
+	endif
+
+;-------------------------------------------------------------------------------------------------------
+;	; set erect cock
+;	if(rPlayerBoners) && (player.GetIsSex Male)
+;			player.equipItemNS rPlayerBoners
+;	endif
+	
+; This is self spell, so only the player can cast it.
+;	if (Player.GetIsSex Male) || (xLoversMB2Quest.sAllowFutanari && xLoversMB2Quest.sPCfutanari)
+	if Player.GetIsSex Male || xLoversMB2Quest.sPCfutanari
+		if rPlayerBoners
+			Player.EquipItemSilent rPlayerBoners
+		endif
+	else
+;		AddItemNS xLoversMB2fem, 1
+		Call xLoversCmnSetItemCount Player, xLoversMB2fem, 1
+	endif
+;-------------------------------------------------------------------------------------------------------
+
+	; unequip hand armor
+	if(player.GetEquippedObject 4)
+		set rHand to player.GetEquippedObject 4
+		if(IsArmor rHand) && (xLoversMB2Quest.sAllowUnequipHands)
+			player.unequipItemNS rHand
+		else
+			set rHand to 0
+		endif
+	endif
+
+	; unequip any weapons, ammo, or shields
+	if(player.GetEquippedObject 16)
+		set rWeapon to player.GetEquippedObject 16
+		player.unequipItemNS rWeapon
+	endif
+
+	if(player.GetEquippedObject 17)
+		set rAmmo to player.GetEquippedObject 17
+		player.unequipItemNS rAmmo
+	endif
+
+	if(player.GetEquippedObject 13)
+		set rShield to player.GetEquippedObject 13
+		player.unequipItemNS rShield
+	endif
+
+	debugPrint "xLoversMB2 [%n] - saved equipment" rPlayer
+
+	; save and change camera mode
+	set sCameraView to isThirdPerson
+	if(sCameraView != 1)
+		ToggleFirstPerson 0
+	endif
+	con_tfc
+	
+	debugPrint "xLoversMB2 [%n] - reset camera" rPlayer
+
+	; tell xLovers to start  
+	call xLoversCmnSetItemCount rPlayer xLoversStageM 0
+	call xLoversCmnSetItemCount rPlayer xLoversPkrFlagTFC 4
+	call xLoversCmnSetItemCount rPlayer xLoversPkrIdentifier 2
+	call xLoversCmnSetItemCount rPlayer xLoversPkrStep 4
+	call xLoversCmnSetItemCount rPlayer xLoversMBStage 1
+
+	debugPrint "xLoversMB2 [%n] - xlovers notified" rPlayer
+	
+	; initialize timers
+	set fTimer to xLoversMB2Quest.fTimeOut
+	set fVoiceTimer to xLoversMB2Quest.fVoiceTimeOut
+
+	; done with setup
+	player.pickIdle
+end
+
+begin ScriptEffectUpdate
+	; so we don't have to go through player's inventory so many times
+	set sStage to player.getItemCount xLoversMBStage
+
+	; not a valid stage?
+	if(sStage == 0)
+	; we're done
+		player.dispel xLoversMB2SpellSelf
+	endif
+
+	; more or less pause if console is open or player is interrupted
+	if(IsTextInputInUse || IsConsoleOpen)
+		return
+	else
+		if(onKeyDown xLoversMB2Quest.sAdvanceStageKey) && (xLoversMB2Quest.sDisallowAdvanceStage == 0)
+			set sKeyPressed to 1
+		elseif(onKeyDown xLoversMB2Quest.sPreviousStageKey)
+			set sKeyPressed to 2
+		elseif(onKeyDown xLoversMB2Quest.sToggleTopKey)
+			set sKeyPressed to 3
+		elseif(onKeyDown xLoversMB2Quest.sToggleBottomKey)
+			set sKeyPressed to 4
+		elseif(onKeyDown xLoversMB2Quest.sChangePositionKey)
+			set sKeyPressed to 5
+		else
+			set sKeyPressed to 0
+		endif
+	endif
+
+	if(sDone_ == 0) ; during mb
+
+		; did the player force a stage change?
+		if(sKeyPressed == 1)
+			set fTimer to 0
+
+			debugPrint "xLoversMB2 [%n] - forced next stage" rPlayer
+		elseif(sKeyPressed == 2)
+			; cannot go before first stage
+			if(sStage > 1)
+			; remove counter
+				player.removeItemNS xLoversMBStage 1
+				; show next animation
+				player.pickIdle
+
+				set sStage to player.getItemCount xLoversMBStage
+				debugPrint "xLoversMB2 [%n] - forced previous stage, %g" rPlayer sStage
+
+				; reset automatic timeout
+				set fTimer to xLoversMB2Quest.fTimeOut - xLoversMB2Quest.fDegradeTimer * (sStage - 1)
+			endif
+		elseif(sKeyPressed == 3) 
+		; toggle top
+
+			; see if the player is wearing anything, update the saved variable while we're at it
+
+			if(player.GetEquippedObject 18)
+				set rEquippedTopAndBottom to player.GetEquippedObject 18
+				set sTmp to call xLoversCmnIsBodySizeEquip rEquippedTopAndBottom
+				if(sTmp == 0)
+					player.unequipItemNS rEquippedTopAndBottom
+				endif
+			elseif(player.GetEquippedObject 19)
+				set rEquippedTopAndBottom to player.GetEquippedObject 19
+				set sTmp to call xLoversCmnIsBodySizeEquip rEquippedTopAndBottom
+				if(sTmp == 0)
+					player.unequipItemNS rEquippedTopAndBottom
+				else
+					set rEquippedTopAndBottom to 0
+				endif
+			elseif(player.GetEquippedObject 20)
+				set rEquippedTopAndBottom to player.GetEquippedObject 20
+				set sTmp to call xLoversCmnIsBodySizeEquip rEquippedTopAndBottom
+				if(sTmp == 0)
+					player.unequipItemNS rEquippedTopAndBottom
+				else
+					set rEquippedTopAndBottom to 0
+				endif
+			elseif(player.GetEquippedObject 21)
+				set rEquippedTopAndBottom to player.GetEquippedObject 21
+				set sTmp to call xLoversCmnIsBodySizeEquip rEquippedTopAndBottom
+				if(sTmp == 0)
+					player.unequipItemNS rEquippedTopAndBottom
+				else
+					set rEquippedTopAndBottom to 0
+				endif
+			elseif(player.GetEquippedObject 2)
+				set rEquippedTop to player.GetEquippedObject 2
+				set sTmp to call xLoversCmnIsBodySizeEquip rEquippedTop
+				if(sTmp == 0)
+					player.unequipItemNS rEquippedTop
+				else
+					set rEquippedTop to 0
+				endif
+			else
+			; pretty sure player is topless right now, put something there
+				if(rEquippedTop)
+					player.equipItemNS rEquippedTop
+				elseif(rEquippedTopAndBottom) && (player.GetIsSex Female) ;only female can equip bottom
+					player.equipItemNS rEquippedTopAndBottom
+				endif
+			endif
+
+			; update equipped items
+			if(rEquippedTopAndBottom) && (player.GetIsSex Female) ;only female can equip bottom
+				set rEquippedTop to 0
+				set rEquippedBottom to 0
+			elseif(rEquippedTop) 
+				set rEquippedTopAndBottom to 0
+			endif
+
+			debugPrint "xLoversMB2 [%n] - toggled top" rPlayer
+		elseif(sKeyPressed == 4) && (player.GetIsSex Female) ;only female can equip bottom
+		; toggle bottom
+
+			; see if the player is wearing anything, update the saved variable while we're at it
+			if(player.GetEquippedObject 18)
+				set rEquippedTopAndBottom to player.GetEquippedObject 18
+				set sTmp to call xLoversCmnIsBodySizeEquip rEquippedTopAndBottom
+				if(sTmp == 0)
+					player.unequipItemNS rEquippedTopAndBottom
+				else
+					set rEquippedTopAndBottom to 0
+				endif
+			elseif(player.GetEquippedObject 19)
+				set rEquippedTopAndBottom to player.GetEquippedObject 19
+				set sTmp to call xLoversCmnIsBodySizeEquip rEquippedTopAndBottom
+				if(sTmp == 0)
+					player.unequipItemNS rEquippedTopAndBottom
+				else
+					set rEquippedTopAndBottom to 0
+				endif
+			elseif(player.GetEquippedObject 20)
+				set rEquippedTopAndBottom to player.GetEquippedObject 20
+				set sTmp to call xLoversCmnIsBodySizeEquip rEquippedTopAndBottom
+				if(sTmp == 0)
+					player.unequipItemNS rEquippedTopAndBottom
+				else
+					set rEquippedTopAndBottom to 0
+				endif
+			elseif(player.GetEquippedObject 21)
+				set rEquippedTopAndBottom to player.GetEquippedObject 21
+				set sTmp to call xLoversCmnIsBodySizeEquip rEquippedTopAndBottom
+				if(sTmp == 0)
+					player.unequipItemNS rEquippedTopAndBottom
+				else
+					set rEquippedTopAndBottom to 0
+				endif
+			elseif(player.GetEquippedObject 3)
+				if(rPlayerBoners) && (rPlayerBoners == player.GetEquippedObject 3)
+					if(rEquippedBottom)
+						player.equipItemNS rEquippedBottom
+					elseif(rEquippedTopAndBottom)
+						player.equipItemNS rEquippedTopAndBottom
+					endif
+					call xLoversCmnSetItemCount rPlayer rPlayerBoners 1
+					player.pickidle
+				else 
+					set rEquippedBottom to player.GetEquippedObject 3
+					set sTmp to call xLoversCmnIsBodySizeEquip rEquippedBottom
+					if(sTmp == 0)
+						player.unequipItemNS rEquippedBottom
+					else
+						set rEquippedBottom to 0
+					endif
+				endif
+			else
+			; pretty sure player is bottomless right now, put something there
+				if(rPlayerBoners)
+					player.equipItemNS rPlayerBoners
+					call xLoversCmnSetItemCount rPlayer rPlayerBoners 2
+					player.pickidle
+				elseif(rEquippedBottom)
+					player.equipItemNS rEquippedBottom
+				elseif(rEquippedTopAndBottom)
+					player.equipItemNS rEquippedTopAndBottom
+				endif
+			endif
+
+			; update equipped items
+			if(rEquippedTopAndBottom)
+				set rEquippedTop to 0
+				set rEquippedBottom to 0
+			else
+				set rEquippedTopAndBottom to 0
+			endif
+
+			debugPrint "xLoversMB2 [%n] - toggled bottom" rPlayer
+		elseif(sKeyPressed == 5)
+			; change position
+			player.pickIdle
+			
+			debugPrint "xLoversMB2 [%n] - changed animation" rPlayer
+		endif
+
+		; start winding down the clock
+		set fTimer to fTimer - GetSecondsPassed
+
+		; if female play audio clip
+		if(player.GetIsSex Female)
+			set fVoiceTimer to fVoiceTimer - GetSecondsPassed
+
+			if(fVoiceTimer < 0)
+				; play the sound depending on which stage
+				if(sStage < xLoversMB2Quest.sFemaleStages - 1)
+					call xLoversCmnPlayVoice rPlayer sStage 0
+				elseif(sStage < xLoversMB2Quest.sFemaleStages)
+					call xLoversCmnPlayVoice rPlayer 4 0
+				else
+					call xLoversCmnPlayVoice rPlayer 5 0
+				endif
+
+				; reset the timer
+				set fTmp to xLoversMB2Quest.fVoiceVariableMin + xLoversMB2Quest.fVoiceVariableMax
+				set fTmp to fTmp * (getRandomPercent / 100) - xLoversMB2Quest.fVoiceVariableMin
+				set fVoiceTimer to xLoversMB2Quest.fVoiceTimeOut + fTmp
+			endif
+		endif
+
+		; finish staged automatically
+		if(fTimer < 0)
+		; add another stage counter
+			player.additemNS xLoversMBStage 1
+
+			; show next animation
+			player.pickIdle
+
+			set sStage to player.getItemCount xLoversMBStage
+			debugPrint "xLoversMB2 [%n] - now on stage %g" rPlayer sStage
+
+			; reset automatic timeout
+			set fTimer to xLoversMB2Quest.fTimeOut - xLoversMB2Quest.fDegradeTimer * (sStage - 1)
+
+			; check if player is done next stage
+			if(sStage >= xLoversMB2Quest.sFemaleStageEnd || sStage >= xLoversMB2Quest.sMaleStageEnd)
+				; no more stages of animations, go to exhausted state
+				player.additemNS xLoversStageM 5
+				set fTimer to xLoversMB2Quest.fUnconsiousTimeOut
+				set sDone_ to 1
+
+				debugPrint "xLoversMB2 [%n] - no more stages" rPlayer
+			endif
+		endif
+	else ; exhausted
+		; run once when player hits exhausted state
+		if(fTimer == xLoversMB2Quest.fUnconsiousTimeOut)
+			player.additemNS xLoversMBStage 1
+			debugPrint "xLoversMB2 [%n] - exhausting actor" rPlayer
+
+			; momma said knock you out
+			player.modav2 fatigue -10000
+		endif
+
+		; wait to wake up
+		set fTimer to fTimer - GetSecondsPassed
+
+		; wakey wakey
+		if(fTimer < 0) && (sDone_ == 1)
+			debugPrint "xLoversMB2 [%n] - cleaning up now" rPlayer
+			set sDone_ to 2
+			player.dispel xLoversMB2SpellSelf
+		endif
+	endif
+
+	; have people gather around to watch
+	set sNumActors to getGameSetting iNumberActorsAllowedToFollowPlayer
+	if(xLoversMB2Quest.sAllowSpectators == 1 && player.getNumFollowers < sNumActors)
+		; go through actors in the same cell
+		set rTmp to getFirstRef 69 1
+		while(rTmp)
+		; can't fit any more actors, done
+			if(player.getNumFollowers == sNumActors)
+				break
+			endif
+
+		; only allow actor to follow target if they pass checks
+			set sTmp to 0
+
+			if(xLoversMB2Quest.sUsexLoverCmnIsReady)
+				let sTmp := call xLoversCmnIsready rTmp 
+			else
+				if(rTmp.getDisabled == 0)
+					if(rTmp.getDead == 0 && rTmp.getUnconscious == 0 && rTmp.getSleeping == 0)
+						if(rTmp.isInCombat == 0 && rTmp.getKnockedState == 0 && rTmp.getIsCreature == 0)
+							if(rTmp.getLOS player && rTmp.getDistance player < xLoversMB2Quest.fSpectatorMaxDistance)
+								set sTmp to 1
+							endif
+						endif
+					endif
+				endif
+			endif
+
+			; actor is ready and not already following the player
+			if(sTmp == 1 && rTmp.getIsCurrentPackage xLoversMB2FollowPlayer == 0)
+				; make it less likely to be seen at longer distances, linear relationship for now
+				set fTmp to xLoversMB2Quest.fSpectatorNoticeChance * (rTmp.getDistance player / xLoversMB2Quest.fSpectatorMaxDistance)
+				if(getRandomPercent < xLoversMB2Quest.fSpectatorNoticeChance - fTmp)
+				; ok, actor is set to follow player
+					rTmp.look player
+					rTmp.addScriptPackage xLoversMB2FollowPlayer
+				endif
+			endif
+
+			set rTmp to getNextRef
+		loop
+	endif
+end
